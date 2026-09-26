@@ -1,0 +1,13 @@
+# Raw Strava exports contain personal data (email, contacts, followers). Never commit them.
+export*.zip
+strava-export/
+activities/
+*.gpx
+*.fit
+
+# Local test and screenshot files
+test.html
+*.png
+!docs/*.png
+node_modules/
+.DS_Store
