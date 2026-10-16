@@ -161,6 +161,12 @@ details.wk summary::-webkit-details-marker{display:none}
 .field label{font-size:12px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em}
 .field input,.field select,.field textarea{background:var(--night);border:1px solid var(--line);border-radius:10px;padding:10px 12px;width:100%}
 .field textarea{min-height:70px;resize:vertical}
+/* Hours, minutes and seconds boxes sit side by side with small unit labels */
+.time-field{grid-column:span 2}
+.hms{display:grid;grid-template-columns:1fr auto 1fr auto 1fr auto;gap:6px;align-items:center}
+.hms input{text-align:center;font-family:var(--mono);font-size:18px;padding:10px 4px;min-width:0}
+.hms span{color:var(--muted);font-family:var(--mono);font-size:13px}
+@media (max-width:420px){.time-field{grid-column:1/-1}}
 .field.wide{grid-column:1/-1}
 .range-out{font-family:var(--mono);color:var(--sun)}
 .runs{display:grid;gap:6px}
@@ -328,7 +334,14 @@ th{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute
     <form class="card form" id="logForm" autocomplete="off">
       <div class="field"><label for="logDate">Date</label><input type="date" id="logDate" required></div>
       <div class="field"><label for="logDist">Distance (km)</label><input type="number" id="logDist" step="0.01" min="0.1" max="60" inputmode="decimal" placeholder="5.00" required></div>
-      <div class="field"><label for="logTime">Moving time</label><input type="text" id="logTime" placeholder="h:mm:ss or mm:ss" inputmode="numeric" pattern="^\d{1,2}(:\d{1,2}){1,2}$" required></div>
+      <!-- Moving time as three separate boxes. A single "1:05:30" box does not
+           work on iPhone, because its number keypad has no colon key. -->
+      <div class="field time-field"><label for="logH">Moving time <span class="range-out" id="paceOut"></span></label>
+        <div class="hms">
+          <input type="number" id="logH" min="0" max="9" inputmode="numeric" placeholder="0" aria-label="Hours"><span>h</span>
+          <input type="number" id="logM" min="0" max="59" inputmode="numeric" placeholder="45" aria-label="Minutes"><span>m</span>
+          <input type="number" id="logS" min="0" max="59" inputmode="numeric" placeholder="00" aria-label="Seconds"><span>s</span>
+        </div></div>
       <div class="field"><label for="logEffort">Effort <span class="range-out" id="effortOut">4</span>/10</label><input type="range" id="logEffort" min="1" max="10" value="4"></div>
       <div class="field"><label for="logPain">Knee or calf pain</label>
         <select id="logPain">
@@ -412,7 +425,6 @@ const fmtDay = d => `${d.getDate()} ${MONTHS[d.getMonth()]}`;
 const fmtTime = s => { s = Math.round(s); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60; return h ? `${h}:${String(m).padStart(2, "0")}:${String(x).padStart(2, "0")}` : `${m}:${String(x).padStart(2, "0")}`; };
 // Pace in seconds per km to "m:ss".
 const fmtPace = (sec, km) => { if (!km) return ""; const p = sec / km; return `${Math.floor(p / 60)}:${String(Math.round(p % 60)).padStart(2, "0")}`; };
-const parseTime = t => { const p = t.trim().split(":").map(Number); if (p.some(isNaN)) return NaN; return p.length === 3 ? p[0] * 3600 + p[1] * 60 + p[2] : p[0] * 60 + p[1]; };
 function toast(msg) { const t = document.createElement("div"); t.className = "toast"; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 2400); }
 // Browser storage can throw in private windows, so every access is guarded.
 const store = {
@@ -772,13 +784,30 @@ $("#runList").addEventListener("click", async e => {
   else { b.dataset.armed = "1"; b.textContent = "Tap again to delete"; setTimeout(() => { if (b.isConnected) { delete b.dataset.armed; b.textContent = "Delete"; } }, 3000); }
 });
 $("#logEffort").addEventListener("input", e => $("#effortOut").textContent = e.target.value);
+
+// Read the three time boxes and return the total in seconds (0 if empty).
+// Empty boxes count as zero, so "45 min 30 s" needs no hours entry.
+function readTime() {
+  const v = id => Math.max(0, parseInt($(id).value, 10) || 0);
+  return v("#logH") * 3600 + v("#logM") * 60 + v("#logS");
+}
+// Show the pace live as the distance and time are typed, as a sense check.
+function showPace() {
+  const s = readTime(), km = parseFloat($("#logDist").value);
+  $("#paceOut").textContent = s && km ? `· ${fmtPace(s, km)} /km` : "";
+}
+["#logH", "#logM", "#logS", "#logDist"].forEach(id => $(id).addEventListener("input", showPace));
+// Typing 2 digits into minutes moves on to seconds, to save taps.
+$("#logM").addEventListener("input", e => { if (e.target.value.length >= 2) $("#logS").focus(); });
 $("#logForm").addEventListener("submit", async e => {
   e.preventDefault();
-  const secs = parseTime($("#logTime").value), km = parseFloat($("#logDist").value);
-  if (!secs || !km) { $("#logStatus").textContent = "Check the distance and time. Time looks like 45:30 or 1:05:30."; return; }
+  const secs = readTime(), km = parseFloat($("#logDist").value);
+  if (!km) { $("#logStatus").textContent = "Add the distance in km, for example 5.2."; return; }
+  if (!secs) { $("#logStatus").textContent = "Add your moving time: minutes and seconds, plus hours if it was over an hour."; return; }
+  if (secs / km < 180 || secs / km > 1200) { $("#logStatus").textContent = `That works out at ${fmtPace(secs, km)} per km, which looks wrong. Check the hours and minutes boxes.`; return; }
   const run = { date: $("#logDate").value, name: $("#logName").value.trim() || "Run", distKm: Math.round(km * 100) / 100, movingS: secs,
     effort: +$("#logEffort").value, pain: +$("#logPain").value, notes: $("#logNotes").value.trim(), source: "log", createdAt: Date.now() };
-  try { await Runs.add(run); toast(`Saved: ${run.distKm} km at ${fmtPace(secs, km)}/km`); e.target.reset(); $("#effortOut").textContent = "4"; $("#logDate").value = iso(today0()); }
+  try { await Runs.add(run); toast(`Saved: ${run.distKm} km at ${fmtPace(secs, km)}/km`); e.target.reset(); $("#effortOut").textContent = "4"; $("#paceOut").textContent = ""; $("#logStatus").textContent = ""; $("#logDate").value = iso(today0()); }
   catch { $("#logStatus").textContent = "Could not save. Check your connection and try again."; }
 });
 // Copy the last five runs as text to paste into a chat with Claude.
