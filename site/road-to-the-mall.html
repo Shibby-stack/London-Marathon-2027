@@ -161,6 +161,19 @@ details.wk summary::-webkit-details-marker{display:none}
 .field label{font-size:12px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em}
 .field input,.field select,.field textarea{background:var(--night);border:1px solid var(--line);border-radius:10px;padding:10px 12px;width:100%}
 .field textarea{min-height:70px;resize:vertical}
+/* Heart rate zones: one row per zone, number coloured by zone */
+.zones{display:grid;gap:6px}
+.zone{display:grid;grid-template-columns:30px 1fr auto;gap:10px;align-items:center;padding:9px 12px;border-radius:10px;background:var(--panel-2)}
+.zone .zn{font-family:var(--display);font-weight:900;font-size:24px;line-height:1;color:var(--zc)}
+.zone .zl{font-size:14px;font-weight:600;min-width:0}
+.zone .zl small{display:block;color:var(--muted);font-weight:400;font-size:12px}
+.zone .zb{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:15px;white-space:nowrap}
+details.hrset summary{cursor:pointer;color:var(--sun);font-weight:600;list-style:none}
+details.hrset summary::-webkit-details-marker{display:none}
+.hr-target{font-weight:700;border-top:1px solid rgba(7,8,31,.25);padding-top:10px}
+.hr-target:empty{display:none}
+.sd .hrt{display:block;margin-top:4px;color:var(--ink)}
+.chip.z{color:var(--night);border-color:transparent}
 /* Hours, minutes and seconds boxes sit side by side with small unit labels */
 .time-field{grid-column:span 2}
 .hms{display:grid;grid-template-columns:1fr auto 1fr auto 1fr auto;gap:6px;align-items:center}
@@ -270,6 +283,7 @@ th{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute
       <div class="eyebrow" id="todayEyebrow">Today</div>
       <h3 id="todayTitle">Rest</h3>
       <p id="todayDetail"></p>
+      <p id="todayHr" class="hr-target"></p>
       <div class="row" id="todayActions"></div>
     </article>
 
@@ -280,6 +294,33 @@ th{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute
       </div>
       <div class="week" id="weekStrip"></div>
       <p class="note" id="weekFocus"></p>
+    </div>
+
+    <!-- Heart rate zones: shows your five zones, with a form to set them up -->
+    <div class="card" id="hrCard" style="display:grid;gap:12px">
+      <div class="row" style="justify-content:space-between">
+        <div>
+          <div class="eyebrow">Heart rate zones</div>
+          <h3 style="margin-top:4px" id="hrHead">Set up your zones</h3>
+        </div>
+        <span class="note" id="hrBasis"></span>
+      </div>
+      <div class="zones" id="zones"></div>
+      <details class="hrset" id="hrSet">
+        <summary id="hrSetSum">Set up your zones</summary>
+        <form class="form" id="hrForm" autocomplete="off" style="margin-top:12px">
+          <div class="field"><label for="hrRest">Resting heart rate</label><input type="number" id="hrRest" min="35" max="100" inputmode="numeric" placeholder="e.g. 62"></div>
+          <div class="field"><label for="hrMax">Maximum heart rate</label><input type="number" id="hrMax" min="140" max="220" inputmode="numeric" placeholder="e.g. 188"></div>
+          <div class="field wide note">Do not know your maximum? Use the highest your watch has recorded, or estimate it from your age.</div>
+          <div class="field"><label for="hrAge">Your age</label><input type="number" id="hrAge" min="16" max="90" inputmode="numeric" placeholder="years"></div>
+          <div class="field" style="align-self:end"><button class="btn ghost" type="button" id="hrEst">Estimate from age</button></div>
+          <div class="field" style="align-self:end"><button class="btn ghost" type="button" id="hrUseRuns">Use highest from my runs</button></div>
+          <div class="row field wide" style="justify-content:space-between">
+            <span class="note" id="hrStatus"></span>
+            <button class="btn" type="submit">Save zones</button>
+          </div>
+        </form>
+      </details>
     </div>
 
     <div class="grid2">
@@ -342,6 +383,8 @@ th{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute
           <input type="number" id="logM" min="0" max="59" inputmode="numeric" placeholder="45" aria-label="Minutes"><span>m</span>
           <input type="number" id="logS" min="0" max="59" inputmode="numeric" placeholder="00" aria-label="Seconds"><span>s</span>
         </div></div>
+      <div class="field"><label for="logAvgHr">Average heart rate <span class="range-out" id="avgZoneOut"></span></label><input type="number" id="logAvgHr" min="60" max="230" inputmode="numeric" placeholder="bpm (optional)"></div>
+      <div class="field"><label for="logMaxHr">Max heart rate</label><input type="number" id="logMaxHr" min="60" max="230" inputmode="numeric" placeholder="bpm (optional)"></div>
       <div class="field"><label for="logEffort">Effort <span class="range-out" id="effortOut">4</span>/10</label><input type="range" id="logEffort" min="1" max="10" value="4"></div>
       <div class="field"><label for="logPain">Knee or calf pain</label>
         <select id="logPain">
@@ -456,6 +499,10 @@ const MID = {
   sharp: km => ({ type: "Sharpener", km, detail: `Easy running with 4 x 1 min at race effort and 2 min easy between. Keeps the legs awake without tiring them.` })
 };
 
+// Which heart rate target each midweek session type uses (see hrLine below).
+const ZKEY = { "Easy run": "easy", "Easy + strides": "easy", "Fartlek": "intervals", "Hills": "intervals", "Tempo": "tempo",
+  "Progression": "prog", "Marathon pace": "mp", "Half marathon pace": "hmp", "Sharpener": "easy" };
+
 // Long run description, adding run/walk and fuelling advice as it grows.
 function longDetail(km, extra) {
   let d = `Long, slow and steady at RPE 3 to 4 (${P.long} per km). Time on your feet matters more than pace.`;
@@ -515,12 +562,12 @@ function buildWeek(i) {
   const start = new Date(PLAN_START.getTime() + i * 7 * DAY);
   const s = [];
   // Monday: long run
-  if (w.long) s.push({ kind: "run", title: `Long run ${w.long} km`, km: w.long, detail: longDetail(w.long, w.longExtra) });
+  if (w.long) s.push({ kind: "run", title: `Long run ${w.long} km`, km: w.long, zone: "easy", detail: longDetail(w.long, w.longExtra) });
   else s.push({ kind: "rest", title: "Rest", km: 0, detail: "No long run the day after a half marathon. Walk, stretch, eat well." });
   // Tuesday: upper body gym
   s.push({ kind: "gym", title: "Gym: upper body and core", km: 0, detail: "Keep legs light today after the long run. Planks, dead bugs and side planks support your running posture." });
   // Wednesday: the quality session
-  s.push({ kind: "run", title: `${w.mid.type} ${w.mid.km} km`, km: w.mid.km, detail: w.mid.detail });
+  s.push({ kind: "run", title: `${w.mid.type} ${w.mid.km} km`, km: w.mid.km, zone: ZKEY[w.mid.type], detail: w.mid.detail });
   // Thursday: legs, adjusted by phase
   let thu = { kind: "gym", title: "Gym: legs (heavy) + knee and calf routine", km: 0, detail: "Your heavy leg day sits here, four days before Monday's long run. Finish with the knee and calf routine from the Learn tab." };
   if (ph === "Marathon specific") thu = { kind: "gym", title: "Gym: legs (maintenance) + knee and calf routine", km: 0, detail: "Keep the weight heavy but cut to 2 or 3 sets of 3 to 5 reps. Strength stays, fatigue goes." };
@@ -529,15 +576,15 @@ function buildWeek(i) {
   if (n === 30) thu = { kind: "rest", title: "Mobility only", km: 0, detail: "Gentle stretching and a short walk. Nothing that makes your legs sore." };
   s.push(thu);
   // Friday: rest or optional run
-  s.push(w.fri ? { kind: "run", title: `Easy run ${w.fri} km (optional)`, km: w.fri, detail: "Optional fourth run. Only if your knee and calves feel quiet. Very easy, RPE 3." }
+  s.push(w.fri ? { kind: "run", title: `Easy run ${w.fri} km (optional)`, km: w.fri, zone: "easy", detail: "Optional fourth run. Only if your knee and calves feel quiet. Very easy, RPE 3." }
                : { kind: "rest", title: "Rest", km: 0, detail: "Rest. Walking, stretching and sleep all count as training." });
   // Saturday: easy run or parkrun
-  if (n === 30) s.push({ kind: "run", title: "Shakeout 3 km", km: 3, detail: "15 to 20 minutes very easy with 3 short strides. Lay out your kit tonight." });
-  else if (w.sat) s.push({ kind: "run", title: `Easy run ${w.sat} km`, km: w.sat, detail: "Easy effort. A parkrun counts, but run it as an easy run, not a race." });
+  if (n === 30) s.push({ kind: "run", title: "Shakeout 3 km", km: 3, zone: "recovery", detail: "15 to 20 minutes very easy with 3 short strides. Lay out your kit tonight." });
+  else if (w.sat) s.push({ kind: "run", title: `Easy run ${w.sat} km`, km: w.sat, zone: "easy", detail: "Easy effort. A parkrun counts, but run it as an easy run, not a race." });
   else s.push({ kind: "rest", title: "Rest", km: 0, detail: "Rest before tomorrow's race. Short walk, carbs with every meal, early night." });
   // Sunday: race, or rest / upper body gym
-  if (w.sunRace === 21.1) s.push({ kind: "race", title: "Half marathon 21.1 km", km: 21.1, detail: "London Stadium. Run the first 5 km at marathon pace, settle, then pick it up from 15 km if you feel strong. Take a gel at 45 and 90 minutes." });
-  else if (w.sunRace) s.push({ kind: "race", title: "London Marathon 42.2 km", km: 42.195, detail: "Blackheath to The Mall. Start at marathon pace or slower, run/walk if planned, fuel every 30 to 40 minutes, and soak in every mile." });
+  if (w.sunRace === 21.1) s.push({ kind: "race", title: "Half marathon 21.1 km", km: 21.1, zone: "half", detail: "London Stadium. Run the first 5 km at marathon pace, settle, then pick it up from 15 km if you feel strong. Take a gel at 45 and 90 minutes." });
+  else if (w.sunRace) s.push({ kind: "race", title: "London Marathon 42.2 km", km: 42.195, zone: "marathon", detail: "Blackheath to The Mall. Start at marathon pace or slower, run/walk if planned, fuel every 30 to 40 minutes, and soak in every mile." });
   else s.push({ kind: "gym", title: "Rest or upper body gym", km: 0, detail: "Optional upper body session. Keep it away from legs before Monday." });
   s.forEach((x, d) => { x.date = new Date(start.getTime() + d * DAY); x.day = DAYS[d]; });
   const km = s.reduce((a, x) => a + x.km, 0);
@@ -576,6 +623,69 @@ const NOTES = [
   "Scrum Master energy: plan the sprint, run the sprint, review the sprint. Log today's run and let's retro it."
 ];
 
+/* The artifact's private database, asked for once and shared by runs and zones.
+   It resolves to null when this view cannot use it (for example a local copy). */
+const dbReady = (async () => { try { return window.claude ? await window.claude.use("db") : null; } catch { return null; } })();
+
+/* ------------------------------------------------------------ 3a. HEART RATE
+   Zones use the heart rate reserve method (also called Karvonen):
+     target = resting + percentage x (maximum - resting)
+   It suits a newer runner better than a plain percentage of maximum,
+   because it allows for your own resting heart rate. */
+const ZONES = [
+  { n: 1, name: "Recovery", use: "Warm ups, walk breaks, recovery jogs", lo: .50, hi: .60, color: "#A9ACD9" },
+  { n: 2, name: "Easy", use: "Easy and long runs. Most of your running lives here", lo: .60, hi: .70, color: "#38E0A6" },
+  { n: 3, name: "Steady", use: "Marathon pace and progression finishes", lo: .70, hi: .80, color: "#FFD23F" },
+  { n: 4, name: "Threshold", use: "Tempo reps and the end of fartlek and hill reps", lo: .80, hi: .90, color: "#FF8A5B" },
+  { n: 5, name: "Maximum", use: "Not used in this plan", lo: .90, hi: 1, color: "#FF4F7B" }
+];
+const HR = {
+  cfg: null,              // { max, rest, basis } once set
+  db: null, listeners: [],
+  onChange(fn) { this.listeners.push(fn); },
+  emit() { this.listeners.forEach(f => f(this.cfg)); },
+  // Heart rate at a given fraction of your heart rate reserve.
+  bpm(f) { return Math.round(this.cfg.rest + f * (this.cfg.max - this.cfg.rest)); },
+  // [low, high] beats per minute for zone n (1 to 5).
+  range(n) { const z = ZONES[n - 1]; return [this.bpm(z.lo), this.bpm(z.hi)]; },
+  // Which zone a heart rate falls in (0 when zones are not set).
+  zoneOf(b) {
+    if (!this.cfg || !b) return 0;
+    const f = (b - this.cfg.rest) / (this.cfg.max - this.cfg.rest);
+    return f < .6 ? 1 : Math.min(5, Math.floor((f - .5) / .1 + 1e-9) + 1);
+  },
+  async init() {
+    // Show what this device remembers straight away, then follow the database.
+    this.cfg = store.get("rtm-hr", null); this.emit();
+    const db = await dbReady; if (!db) return;
+    this.db = db;
+    db.doc("settings/hr").onSnapshot(snap => {
+      if (snap.exists) { this.cfg = { ...snap.data() }; store.set("rtm-hr", this.cfg); this.emit(); }
+    }, () => {});
+  },
+  async save(cfg) {
+    this.cfg = cfg; store.set("rtm-hr", cfg); this.emit();
+    if (this.db) await this.db.doc("settings/hr").set(cfg);
+  }
+};
+
+// The heart rate guidance for one session, or "" when zones are not set.
+function hrLine(key) {
+  if (!HR.cfg || !key) return "";
+  const [, z1hi] = HR.range(1), [z2lo, z2hi] = HR.range(2), [z3lo, z3hi] = HR.range(3), [z4lo, z4hi] = HR.range(4);
+  return ({
+    recovery: `Heart rate: under ${z1hi} bpm (zone 1).`,
+    easy: `Heart rate: ${z2lo} to ${z2hi} bpm (zone 2). Treat ${z2hi} as a ceiling: if you go over, slow down or take a walk break until it drops.`,
+    intervals: `Heart rate: reach zone 4 (${z4lo} to ${z4hi} bpm) by the end of each rep, then let it fall below ${z2hi} before the next. Heart rate lags behind short efforts, so run the reps by feel.`,
+    tempo: `Heart rate: zone 4, ${z4lo} to ${z4hi} bpm, staying in the lower half. It takes 2 to 3 minutes to climb, so start each rep by feel.`,
+    prog: `Heart rate: zone 2 at the start (under ${z2hi} bpm), finishing in zone 3 (${z3lo} to ${z3hi} bpm).`,
+    mp: `Heart rate: the marathon pace section sits in zone 3, ${z3lo} to ${z3hi} bpm. Warm up and cool down under ${z2hi}.`,
+    hmp: `Heart rate: top of zone 3 into low zone 4, about ${HR.bpm(.75)} to ${HR.bpm(.85)} bpm.`,
+    half: `Heart rate: hold zone 3 (${z3lo} to ${z3hi} bpm) to 15 km, then let it rise into zone 4 if you feel strong.`,
+    marathon: `Heart rate: stay under ${z3hi} bpm (top of zone 3) until 30 km. It drifts up in the second half; ease the pace rather than chase the number.`
+  })[key] || "";
+}
+
 /* -------------------------------------------------------------- 3. RUNS STORE
    Runs are kept in the artifact's own database when available, so Claude can
    read them back when coaching. If the database is not available in this
@@ -587,8 +697,7 @@ const Runs = {
   async init() {
     // Start from anything saved on this device so the page is never empty.
     this.list = store.get("rtm-runs", []); this.emit();
-    let db = null;
-    try { db = window.claude ? await window.claude.use("db") : null; } catch { db = null; }
+    const db = await dbReady;
     if (!db) { this.local = true; this.emit(); return; }
     this.db = db;
     // Subscribe once to the whole runs collection; the page redraws on each change.
@@ -654,6 +763,7 @@ function renderToday(runs) {
     $("#todayEyebrow").textContent = `Today · ${DAYS[di]} ${fmtDay(t)}`;
     $("#todayTitle").textContent = session.title;
     $("#todayDetail").textContent = session.detail;
+    $("#todayHr").textContent = hrLine(session.zone) || (session.zone ? "Set up your heart rate zones below to get a heart rate target for this session." : "");
     $("#stripLabel").textContent = `Week ${week.n} · ${fmtDay(week.start)} to ${fmtDay(week.end)}`;
   }
   // Actions on the today card
@@ -757,7 +867,7 @@ function renderPlan() {
       <p class="wkfocus">${esc(w.focus)}</p>
       <div class="sessions">${w.sessions.map(s => `
         <div class="sess ${s.kind}"><span class="dn">${s.day}<br>${s.date.getDate()} ${MONTHS[s.date.getMonth()]}</span>
-        <div><div class="st">${esc(s.title)}</div><div class="sd">${esc(s.detail)}</div></div></div>`).join("")}
+        <div><div class="st">${esc(s.title)}</div><div class="sd">${esc(s.detail)}${s.zone && HR.cfg ? `<span class="hrt">${esc(hrLine(s.zone))}</span>` : ""}</div></div></div>`).join("")}
       </div>
     </details>`).join("");
 }
@@ -768,11 +878,13 @@ function renderRuns(runs) {
   $("#runList").innerHTML = runs.slice(0, 60).map(r => {
     const pain = r.pain ? `<span class="chip ${r.pain >= 4 ? "amber" : ""}">pain ${r.pain}/10</span>` : "";
     const eff = r.effort ? `<span class="chip">effort ${r.effort}/10</span>` : "";
+    const z = HR.zoneOf(r.avgHr);
+    const hr = r.avgHr ? `<span class="chip ${z ? "z" : ""}" ${z ? `style="background:${ZONES[z - 1].color}"` : ""}>HR ${r.avgHr}${r.maxHr ? ` / ${r.maxHr}` : ""}${z ? ` · Z${z}` : ""}</span>` : "";
     const src = r.source === "strava" ? `<span class="chip">Strava</span>` : `<span class="chip mint">Logged</span>`;
     const del = r.source !== "strava" ? `<button class="del" data-del="${esc(r.id)}">Delete</button>` : "";
     return `<div class="run">
       <span class="dt">${fmtDay(fromIso(r.date))}<br>${fromIso(r.date).getFullYear()}</span>
-      <div style="min-width:0"><div class="nm">${esc(r.name || "Run")}</div><div class="sub">${src}${eff}${pain}${del}</div>${r.notes ? `<div class="note">${esc(r.notes)}</div>` : ""}</div>
+      <div style="min-width:0"><div class="nm">${esc(r.name || "Run")}</div><div class="sub">${src}${hr}${eff}${pain}${del}</div>${r.notes ? `<div class="note">${esc(r.notes)}</div>` : ""}</div>
       <span class="km">${(r.distKm || 0).toFixed(2)} km<small>${fmtTime(r.movingS || 0)} · ${fmtPace(r.movingS, r.distKm)}/km</small></span>
     </div>`;
   }).join("") || `<p class="note">No runs yet.</p>`;
@@ -797,6 +909,8 @@ function showPace() {
   $("#paceOut").textContent = s && km ? `· ${fmtPace(s, km)} /km` : "";
 }
 ["#logH", "#logM", "#logS", "#logDist"].forEach(id => $(id).addEventListener("input", showPace));
+// Show which zone the average heart rate falls in as it is typed.
+$("#logAvgHr").addEventListener("input", e => { const z = HR.zoneOf(parseInt(e.target.value, 10)); $("#avgZoneOut").textContent = z ? `· zone ${z}` : ""; });
 // Typing 2 digits into minutes moves on to seconds, to save taps.
 $("#logM").addEventListener("input", e => { if (e.target.value.length >= 2) $("#logS").focus(); });
 $("#logForm").addEventListener("submit", async e => {
@@ -805,17 +919,76 @@ $("#logForm").addEventListener("submit", async e => {
   if (!km) { $("#logStatus").textContent = "Add the distance in km, for example 5.2."; return; }
   if (!secs) { $("#logStatus").textContent = "Add your moving time: minutes and seconds, plus hours if it was over an hour."; return; }
   if (secs / km < 180 || secs / km > 1200) { $("#logStatus").textContent = `That works out at ${fmtPace(secs, km)} per km, which looks wrong. Check the hours and minutes boxes.`; return; }
+  // Heart rate is optional; when given it must be a believable number.
+  const avgHr = parseInt($("#logAvgHr").value, 10) || 0, maxHr = parseInt($("#logMaxHr").value, 10) || 0;
+  const badHr = v => v && (v < 60 || v > 230);
+  if (badHr(avgHr) || badHr(maxHr)) { $("#logStatus").textContent = "Heart rate should be between 60 and 230 bpm. Check the numbers from your watch."; return; }
+  if (avgHr && maxHr && avgHr > maxHr) { $("#logStatus").textContent = "Average heart rate cannot be higher than max. Check you have not swapped them."; return; }
   const run = { date: $("#logDate").value, name: $("#logName").value.trim() || "Run", distKm: Math.round(km * 100) / 100, movingS: secs,
     effort: +$("#logEffort").value, pain: +$("#logPain").value, notes: $("#logNotes").value.trim(), source: "log", createdAt: Date.now() };
-  try { await Runs.add(run); toast(`Saved: ${run.distKm} km at ${fmtPace(secs, km)}/km`); e.target.reset(); $("#effortOut").textContent = "4"; $("#paceOut").textContent = ""; $("#logStatus").textContent = ""; $("#logDate").value = iso(today0()); }
+  if (avgHr) run.avgHr = avgHr;
+  if (maxHr) run.maxHr = maxHr;
+  try { await Runs.add(run); toast(`Saved: ${run.distKm} km at ${fmtPace(secs, km)}/km`); e.target.reset(); $("#effortOut").textContent = "4"; $("#paceOut").textContent = ""; $("#avgZoneOut").textContent = ""; $("#logStatus").textContent = ""; $("#logDate").value = iso(today0());
+    // A new highest reading means the maximum used for the zones is too low.
+    if (maxHr && HR.cfg && maxHr > HR.cfg.max) $("#logStatus").textContent = `New highest heart rate: ${maxHr} bpm, above the ${HR.cfg.max} in your zones. Update your maximum on the Today tab.`; }
   catch { $("#logStatus").textContent = "Could not save. Check your connection and try again."; }
 });
 // Copy the last five runs as text to paste into a chat with Claude.
 $("#copyRuns").addEventListener("click", () => {
-  const txt = "My last runs:\n" + Runs.list.slice(0, 5).map(r => `${r.date}: ${r.name}, ${r.distKm} km in ${fmtTime(r.movingS)} (${fmtPace(r.movingS, r.distKm)}/km)${r.effort ? `, effort ${r.effort}/10` : ""}${r.pain ? `, pain ${r.pain}/10` : ""}${r.notes ? `. Notes: ${r.notes}` : ""}`).join("\n");
+  const txt = "My last runs:\n" + Runs.list.slice(0, 5).map(r => `${r.date}: ${r.name}, ${r.distKm} km in ${fmtTime(r.movingS)} (${fmtPace(r.movingS, r.distKm)}/km)${r.avgHr ? `, avg HR ${r.avgHr}` : ""}${r.maxHr ? `, max HR ${r.maxHr}` : ""}${r.effort ? `, effort ${r.effort}/10` : ""}${r.pain ? `, pain ${r.pain}/10` : ""}${r.notes ? `. Notes: ${r.notes}` : ""}`).join("\n");
   const fb = $("#copyFallback");
   const fallback = () => { fb.hidden = false; fb.value = txt; fb.select(); toast("Select all and copy"); };
   try { navigator.clipboard.writeText(txt).then(() => toast("Copied. Paste it into our chat."), fallback); } catch { fallback(); }
+});
+
+// What Coach is told about heart rate.
+function hrContext() {
+  if (!HR.cfg) return "Has a new heart rate watch but has not set zones yet: suggest setting resting and maximum heart rate on the Today tab. Coach by RPE 1 to 10 and pace until then.";
+  return `Runs with a heart rate watch (wrist). Zones by heart rate reserve, max ${HR.cfg.max} (${HR.cfg.basis}), resting ${HR.cfg.rest}: ` +
+    ZONES.map(z => `Z${z.n} ${z.name} ${HR.range(z.n).join(" to ")}`).join(", ") +
+    ". Use heart rate as a ceiling on easy days and RPE alongside it. Expect cardiac drift on long runs and lag on short reps.";
+}
+
+/* ---- Heart rate zones card ---- */
+let hrBasis = "entered by you";
+function renderHrCard() {
+  const c = HR.cfg;
+  $("#hrHead").textContent = c ? "Your five zones" : "Set up your zones";
+  $("#hrBasis").textContent = c ? `Max ${c.max} · resting ${c.rest} · ${c.basis || ""}` : "";
+  $("#hrSetSum").textContent = c ? "Change maximum or resting heart rate" : "Set up your zones";
+  if (!c) {
+    $("#zones").innerHTML = `<p class="note">Enter your resting and maximum heart rate. Every session in your plan then gets a heart rate target, and each run you log shows which zone it was in. Your watch app usually shows your resting heart rate; if not, count your pulse for 60 seconds before getting out of bed, three mornings running, and use the average.</p>`;
+    $("#hrSet").open = true;
+    return;
+  }
+  $("#zones").innerHTML = ZONES.map(z => { const [lo, hi] = HR.range(z.n); return `
+    <div class="zone" style="--zc:${z.color}"><span class="zn">${z.n}</span>
+      <span class="zl">${z.name}<small>${z.use}</small></span>
+      <span class="zb">${lo} to ${hi}</span></div>`; }).join("");
+  $("#hrRest").value = c.rest; $("#hrMax").value = c.max;
+}
+$("#hrEst").addEventListener("click", () => {
+  const age = parseInt($("#hrAge").value, 10);
+  if (!(age >= 16 && age <= 90)) { $("#hrStatus").textContent = "Enter your age first."; return; }
+  // Tanaka formula. Estimates can be 10 bpm out either way, so a reading from a hard run is better.
+  $("#hrMax").value = Math.round(208 - 0.7 * age); hrBasis = "max estimated from age";
+  $("#hrStatus").textContent = "Estimated. Replace it with a real reading once your watch records a higher one.";
+});
+$("#hrUseRuns").addEventListener("click", () => {
+  const top = Math.max(0, ...Runs.list.map(r => r.maxHr || 0));
+  if (!top) { $("#hrStatus").textContent = "No runs with a max heart rate yet. Log one, or estimate from your age for now."; return; }
+  $("#hrMax").value = top; hrBasis = "max from your runs";
+  $("#hrStatus").textContent = `Highest in your log: ${top} bpm. Your true maximum is probably a little higher, so update it if you see more.`;
+});
+$("#hrMax").addEventListener("input", () => { hrBasis = "entered by you"; });
+$("#hrForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const max = parseInt($("#hrMax").value, 10), rest = parseInt($("#hrRest").value, 10);
+  if (!(rest >= 35 && rest <= 100)) { $("#hrStatus").textContent = "Resting heart rate is usually between 40 and 90 bpm. Check the number."; return; }
+  if (!(max >= 140 && max <= 220)) { $("#hrStatus").textContent = "Maximum heart rate should be between 140 and 220 bpm."; return; }
+  if (max - rest < 60) { $("#hrStatus").textContent = "Those two numbers are too close together. Check you have not swapped them."; return; }
+  try { await HR.save({ max, rest, basis: hrBasis, updatedAt: Date.now() }); $("#hrStatus").textContent = ""; $("#hrSet").open = false; toast("Zones saved. Your plan now has heart rate targets."); }
+  catch { $("#hrStatus").textContent = "Could not save. Check your connection and try again."; }
 });
 
 /* ---- Ask Coach (uses the viewer's own Claude through the sample capability) ---- */
@@ -823,11 +996,11 @@ const Coach = { sample: null, turns: [], ctl: null };
 function coachContext() {
   const t = today0(), wi = weekIndexOf(t);
   const wk = PLAN[Math.min(PLAN.length - 1, Math.max(0, wi))], next = PLAN[Math.min(PLAN.length - 1, Math.max(0, wi) + 1)];
-  const recent = Runs.list.slice(0, 10).map(r => `${r.date} ${r.name}: ${r.distKm} km, ${fmtTime(r.movingS)}, ${fmtPace(r.movingS, r.distKm)}/km${r.effort ? `, effort ${r.effort}/10` : ""}${r.pain ? `, pain ${r.pain}/10` : ""}${r.notes ? `, notes: ${r.notes}` : ""}`).join("\n");
-  const wkText = w => w.sessions.map(s => `${s.day} ${fmtDay(s.date)}: ${s.title}. ${s.detail}`).join("\n");
+  const recent = Runs.list.slice(0, 10).map(r => `${r.date} ${r.name}: ${r.distKm} km, ${fmtTime(r.movingS)}, ${fmtPace(r.movingS, r.distKm)}/km${r.avgHr ? `, avg HR ${r.avgHr}${HR.zoneOf(r.avgHr) ? ` (zone ${HR.zoneOf(r.avgHr)})` : ""}` : ""}${r.maxHr ? `, max HR ${r.maxHr}` : ""}${r.effort ? `, effort ${r.effort}/10` : ""}${r.pain ? `, pain ${r.pain}/10` : ""}${r.notes ? `, notes: ${r.notes}` : ""}`).join("\n");
+  const wkText = w => w.sessions.map(s => `${s.day} ${fmtDay(s.date)}: ${s.title}. ${s.detail} ${hrLine(s.zone)}`).join("\n");
   return `You are "Coach", Shihab's personal running coach and biggest supporter. Warm, direct, a best friend who knows their stuff. Write in UK English. Never use em dashes or en dashes. Keep answers short and practical (under 180 words unless asked for more), use short paragraphs or a few bullet points.
 
-ATHLETE: Shihab, male, 178 cm, about 95 kg, London. Goal: London Marathon, Sunday 25 April 2027. Realistic target 5:00 to 5:30, stretch 4:30. Half marathon at London Stadium on 28 February 2027. Runs 3 days a week (4 at most), long runs on Mondays, gym 3 days a week (squats 110 kg for 5). No heart rate monitor yet, so coach by RPE 1 to 10 and pace.
+ATHLETE: Shihab, male, 178 cm, about 95 kg, London. Goal: London Marathon, Sunday 25 April 2027. Realistic target 5:00 to 5:30, stretch 4:30. Half marathon at London Stadium on 28 February 2027. Runs 3 days a week (4 at most), long runs on Mondays, gym 3 days a week (squats 110 kg for 5). ${hrContext()}
 INJURY HISTORY: torn ACL (not reconstructed, some fibres attached to the PCL; advised to build leg strength) and torn meniscus with meniscus smoothing surgery about 2 years ago on the same knee. Sometimes gets knee ache and lower calf ache while running, and feet that suddenly feel tight or swollen in his shoes. You are not a doctor: never diagnose. For pain that is sharp, worsening, causes limping, swelling or giving way, tell him to stop running and see a physio or GP. For one calf that is painful, swollen, warm or red, tell him to seek medical help promptly.
 FITNESS: parkrun 5 km in 34:48 (19 Sep 2026). Longest run 12 km (21 Sep 2026). About 14 km a week before the plan. Paces: easy ${P.easy}/km, long ${P.long}/km, tempo ${P.tempo}/km, marathon ${P.mp}/km.
 PLAN: 30 weeks from Monday 28 September 2026. Today is ${DAYS[dayIndexOf(t)]} ${fmtDay(t)} ${t.getFullYear()}. ${wi < 0 ? "The plan has not started yet." : `Current week ${wk.n} of 30 (${wk.phase}).`}
@@ -873,13 +1046,13 @@ $("#coachInput").addEventListener("keydown", e => { if (e.key === "Enter" && !e.
 /* ---- Learn ---- */
 const LESSONS = [
   ["Effort", "Why your easy runs should feel too easy", `<p>About 80 percent of your running should be easy. Easy running builds the aerobic engine: more blood vessels in your muscles, more mitochondria, stronger tendons. It does this with little fatigue, so you can do it three times a week for 30 weeks.</p><p>Run too hard on easy days and you get tired without getting much fitter, and your knee takes more load. The test: you can speak in full sentences. If you cannot, slow down or walk.</p>`],
-  ["Effort", "The effort scale (until you get a heart rate monitor)", `<div class="tbl-wrap"><table><tr><th>RPE</th><th>Feels like</th><th>Used for</th><th>Your pace</th></tr>
-    <tr><td>2 to 3</td><td>Could chat all day</td><td>Recovery, warm ups</td><td>9:00+ /km or walk</td></tr>
-    <tr><td>3 to 4</td><td>Full sentences</td><td>Easy and long runs</td><td>${P.easy} /km</td></tr>
-    <tr><td>5</td><td>Short sentences, steady</td><td>Marathon pace</td><td>${P.mp} /km</td></tr>
-    <tr><td>6 to 7</td><td>A few words at a time</td><td>Tempo, half pace</td><td>${P.tempo} /km</td></tr>
-    <tr><td>7 to 8</td><td>Hard, controlled</td><td>Fartlek, hills</td><td>by feel</td></tr>
-    <tr><td>9 to 10</td><td>All out</td><td>Never in this plan</td><td></td></tr></table></div>`],
+  ["Effort", "Effort, pace and heart rate zones", `<p>Effort (RPE), pace and heart rate describe the same thing three ways. Use them together: if they disagree, slow down.</p><div class="tbl-wrap"><table><tr><th>RPE</th><th>Feels like</th><th>Zone</th><th>Used for</th><th>Your pace</th></tr>
+    <tr><td>2 to 3</td><td>Could chat all day</td><td>1</td><td>Recovery, warm ups</td><td>9:00+ /km or walk</td></tr>
+    <tr><td>3 to 4</td><td>Full sentences</td><td>2</td><td>Easy and long runs</td><td>${P.easy} /km</td></tr>
+    <tr><td>5</td><td>Short sentences, steady</td><td>3</td><td>Marathon pace</td><td>${P.mp} /km</td></tr>
+    <tr><td>6 to 7</td><td>A few words at a time</td><td>4</td><td>Tempo, half pace</td><td>${P.tempo} /km</td></tr>
+    <tr><td>7 to 8</td><td>Hard, controlled</td><td>4</td><td>Fartlek, hills</td><td>by feel</td></tr>
+    <tr><td>9 to 10</td><td>All out</td><td>5</td><td>Never in this plan</td><td></td></tr></table></div>`],
   ["Method", "Run/walk: the secret weapon", `<p>Planned walk breaks from the start (for example run 9 minutes, walk 1) reduce the pounding on your knee, delay fatigue and often make you faster over a marathon, because you slow down less at the end. It is a strategy, not giving up.</p><p>Practise it on long runs from week 6. Walk briskly, and start running again on the beep. Many runners finish London this way.</p>`],
   ["Strength", "Knee and calf routine (after Thursday legs)", `<p>Your quads and hamstrings are your ACL's best friends. Your squats already help. Add these, 2 to 3 sets each:</p><ol>
     <li><strong>Bent knee calf raises</strong>, slow down (3 seconds), 12 to 15 reps. Targets the soleus, the lower calf muscle that often aches.</li>
@@ -908,7 +1081,13 @@ const LESSONS = [
     <li>The crowds will pull you faster in the first 5 km. Run your planned pace, not the crowd's.</li>
     <li>Nothing new on race day: kit, shoes, breakfast and gels all rehearsed on week 27.</li>
     <li>Write your name on your shirt. Strangers shouting "Go on Shihab!" at 35 km is rocket fuel.</li></ul>`],
-  ["Kit", "Heart rate monitor: when you get one", `<p>A chest strap is more accurate than a wrist sensor for heart rate while running. Once you have one, run a few easy weeks as normal, then we will set your zones from a field test and I will add heart rate targets to each session. Until then, effort (RPE) works well.</p>`],
+  ["Heart", "Heart rate: using your watch well", `<p><strong>Setting your zones.</strong> You need two numbers. Resting heart rate: most watches show it; otherwise count your pulse for 60 seconds before getting out of bed on three mornings and take the average. Maximum heart rate: age formulas can be 10 bpm or more out either way, so the best guide is the highest number your watch records at the end of a hard effort, such as a strong parkrun finish. Raise it whenever you see a higher reading. No all-out max test for now, while your knee settles.</p>
+    <p><strong>Easy days: heart rate is a ceiling.</strong> At first, staying in zone 2 may mean running much slower than you expect, or taking walk breaks. That is normal. Over the weeks, your pace at the same heart rate gets quicker. That is your aerobic fitness growing, and it is one of the best signs we can track.</p>
+    <ul><li><strong>Drift:</strong> on long runs heart rate creeps up 5 to 10 percent at the same pace as you warm up and lose fluid. Ease off slightly rather than chase the number.</li>
+    <li><strong>Lag:</strong> heart rate takes 1 to 3 minutes to catch up with effort, so run short reps by feel.</li>
+    <li><strong>Things that push it up:</strong> heat, hills, poor sleep, caffeine, dehydration, stress and illness. A high reading on a tired day is a reason to go easier.</li>
+    <li><strong>Wrist sensors:</strong> wear the watch snug, a finger width above the wrist bone. The first few minutes are often wrong, sometimes locking on to your running cadence (150 to 160). If the number does not match how you feel, trust how you feel. A chest strap is more accurate if you want one later.</li></ul>
+    <p>Stop and get checked by a GP if you ever get chest pain, dizziness, a racing or irregular heartbeat, or a heart rate that stays unusually high at an easy effort.</p>`],
   ["Kit", "Your shoes", `<p>Your Nike Vomero 18 Plus is a cushioned daily trainer and a good choice for your easy and long runs. Most running shoes last roughly 500 to 800 km. Consider a second pair in January so you can rotate them and race in a pair that is broken in but not worn out.</p>`]
 ];
 function renderLearn() {
@@ -1340,6 +1519,9 @@ $("#logDate").value = iso(today0());
 
 renderPlan(); renderLearn();
 Runs.onChange(list => { renderToday(list); renderRuns(list); });
+// When zones change, everything that shows a heart rate target is redrawn.
+HR.onChange(() => { renderHrCard(); renderToday(Runs.list); renderRuns(Runs.list); renderPlan(); });
+HR.init();
 renderToday([]); renderRuns([]);
 Runs.init();
 
